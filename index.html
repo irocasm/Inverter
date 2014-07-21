@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Inverter</title>
+	<meta HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=utf-8" />
+    <script src="lib/goo.min.js"></script>
+    <script src="lib/field.js"></script>
+</head>
+<body>
+<style type="text/css">
+canvas {
+	background: #243436;
+}
+</style>
+<script>
+'use strict';
+CanvasRenderingContext2D.prototype.drawRoundedRect = function (x, y, w, h, r, fill, stroke) {
+    var ctx = this;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y+r);
+    ctx.arcTo(x, y, x+1, y, r);
+    ctx.lineTo(x+w-r, y);
+    ctx.arcTo(x+w, y, x+w, y+1, r);
+    ctx.lineTo(x+w, y+h-r);
+    ctx.arcTo(x+w, y+h, x+w-1, y+h, r);
+    ctx.lineTo(x+r, y+h);
+    ctx.arcTo(x, y+h, x, y+h-1, r);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+};
+CanvasRenderingContext2D.prototype.clearCanvas = function () {
+    var ctx = this;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
+};
+// TODO: option to prevent automatic level increasing
+var g = new Goo({
+    width: Math.min(window.innerHeight, window.innerWidth) - 20,
+    height: Math.min(window.innerHeight, window.innerWidth) - 20,
+    container: document.body,
+    fullscreen: true,
+    animate: false,
+    field: new Field(parseInt(location.hash.substr(1)) || 1),
+    toggles: new Field(parseInt(location.hash.substr(1)) || 1),
+    initDone: false,
+    doStroke: false,
+    showDigits: false,
+    showStats: false,
+    stats: {
+        "clicks": 0,
+        "clicksSum": 0,
+        "toggled": 0,
+        "numNeigh": new Array((parseInt(location.hash.substr(1)) || 1) * (parseInt(location.hash.substr(1)) || 1)),
+        "statsWidth": 250,
+        "statsHeight": 100,
+        "statsPosX": 0,
+        "statsPosY": 0
+    },
+    getSquare: function (g) {
+        var offsetX, offsetY, x, y, 
+            vmin = Math.min(g.width, g.height),
+            s = g.field.getSize();
+        if (g.width > g.height) {
+            offsetX = (g.width - g.height) / 2, offsetY = 0;
+        } else {
+            offsetY = (g.height - g.width) / 2, offsetX = 0;
+        }
+        x = g.mouseX-offsetX;
+        y = g.mouseY-offsetY;
+        if (x < 0 || y < 0 || x > vmin || y > vmin) {
+            return [-1, -1];
+        }
+        return [((x/vmin*s) |0), ((y/vmin*s) |0)];
+    },
+    onDraw: function (g) {
+        if (!g.initDone) {
+            var s = parseInt(location.hash.substr(1)) || 1;
+            g.field = new Field(s);
+            g.toggles = new Field(s);
+            g.stats.numNeigh.length = s*s;
+            g.stats.clicks = 0;
+            g.stats.toggled = 0;
+            document.title = "Inverter Level " + g.field.getSize();
+            
+            for (var i = 0; i < g.stats.numNeigh.length; i++) {
+                g.stats.numNeigh[i] = 0;
+            }
+            g.ctx.clearCanvas();
+            g.ctx.lineWidth = 4;
+            g.ctx.font = (Math.min(g.width, g.height)/g.field.getSize() - 10 |0) + "px sans-serif";
+            g.ctx.textAlign = "center";
+            g.ctx.textBaseline = "middle";
+            g.ctx.fillStyle = "#243436";
+            g.initDone = true;
+        }
+        var w = window.innerWidth,
+            h = window.innerHeight;
+        var translateX, translateY;
+        if (g.width > g.height) {
+            translateX = (g.width - g.height) / 2, translateY = 0;
+        } else {
+            translateY = (g.height - g.width) / 2, translateX = 0;
+        }
+        g.ctx.setTransform(1, 0, 0, 1, translateX, translateY);
+        redraw(g);
+    },
+    onMouseDown: function (g) {
+        /*
+         colors:
+         - orange (default): "#fcaf3e"
+         - blue (toggled):   "#729fcf"
+         - yellow (clicked): "#fce94f"
+         - black (number):   "#243436"
+        */
+        var vmin = Math.min(g.width, g.height),
+            sq = g.getSquare(g),
+            s = g.field.getSize(),
+            i = sq[0] + sq[1] * s;
+        if (isMouseOverStatsBox(this)) {
+            g.canvas.style.cursor = "move";
+            return;
+        }
+        g.canvas.style.cursor = "";
+        if (sq[0] === -1) {
+            return;
+        }
+        g.toggles.toggle(i);
+        g.field.toggleNeighbours(i);
+        var t = g.toggles.get(i) ? 1 : -1,
+            sqLength = vmin / g.field.getSize(),
+            fill, stroke,
+            x, y;
+        g.stats.clicks++;
+        g.stats.clicksSum++;
+        g.stats.toggled += t;
+        g.field.getNeighbours(i).forEach(function (n) {
+            g.stats.numNeigh[n] += t;
+            x = n % s;
+            y = (n / s) | 0;
+            redrawSquare(g, x, y);
+        });
+        if (g.showStats) {
+            displayStats(g);
+        }
+        
+        if (g.field.isSolved()) {
+            //TODO
+            g.ctx.save();
+            g.ctx.font = (Math.min(120, vmin/4)|0) + "px sans-serif";
+            g.ctx.strokeStyle = "#fce94f";
+            g.ctx.lineWidth = 2;
+            g.ctx.fillText("Gewonnen!", vmin/2, vmin/2, g.width);
+            g.ctx.strokeText("Gewonnen!", vmin/2, vmin/2, g.width);
+            g.ctx.restore();
+            window.setTimeout(function () {
+                location.hash = s+1;
+            }, 500);
+        }
+    },
+    onKeyDown: function (g) {
+        if (g.keyCode === 32) { //SPACE
+            if (g.doStroke === g.showDigits) {
+                g.doStroke = !g.doStroke;
+                g.showDigits = !g.showDigits;
+            } else {
+                g.doStroke = !g.doStroke;
+            }
+            redraw(g);
+        } else if (g.keyCode === 83) { //KeyS
+            if (g.showStats) {
+                g.showStats = false;
+                g.ctx.clearCanvas();
+            } else {
+                g.showStats = true;
+            }
+            redraw(g);
+        } else if (g.keyCode === 68) { //KeyD
+            g.showDigits = !g.showDigits;
+            redraw(g);
+        } else if (g.keyCode === 70) { //KeyF
+            g.doStroke = !g.doStroke;
+            redraw(g);
+        } else {
+            console.debug("g.keyCode: " + g.keyCode);
+        }
+    },
+    onMouseMove: function (g) {
+        if (isMouseOverStatsBox(g)) {
+            g.canvas.style.cursor = "move";
+        } else {
+            g.canvas.style.cursor = "";
+        }
+    },
+    onMouseDrag: function (g) {
+        if (isMouseOverStatsBox(g)) {
+            g.canvas.style.cursor = "move";
+            g.stats.statsPosX += g.mouseX - g.prevMouseX;
+            g.stats.statsPosY += g.mouseY - g.prevMouseY;
+            g.ctx.clearCanvas();
+            redraw(g);
+        } else {
+            g.canvas.style.cursor = "";
+        }
+    },
+    onHashChange: function (g) {
+        // resets the game
+        var translateX, translateY;
+        if (this.width > this.height) {
+            translateX = (this.height - this.width) / 2, translateY = 0;
+        } else {
+            translateY = (this.width - this.height) / 2, translateX = 0;
+        }
+        this.ctx.translate(translateX, translateY);
+        this.initDone = false;
+        this.onDraw(this);
+    }
+});
+function redraw(g) {
+    var vmin = Math.min(g.width, g.height),
+        s = g.field.getSize(),
+        sqLength = vmin / g.field.getSize(),
+        fill, stroke,
+        x, y;
+    g.ctx.clearRect(0, 0, vmin, vmin);
+    for (x = 0; x < s; x++) {
+        for (y = 0; y < s; y++) {
+            fill   =               g.field.get(x + y *s)   ? "#729fcf" : "#fcaf3e";
+            stroke = g.doStroke && g.toggles.get(x + y *s) ? "#fce94f" : "transparent";
+            g.ctx.clearRect(x*sqLength, y*sqLength, sqLength, sqLength);
+            g.ctx.drawRoundedRect(x*sqLength+5, y*sqLength+5, sqLength-10, sqLength-10, 5, fill, stroke);
+            if (g.showDigits && g.stats.numNeigh[x + y *s] !== 0) {
+                g.ctx.fillText(g.stats.numNeigh[x + y *s], (x + .5)*sqLength, (y + .5)*sqLength+5);
+            }
+        }
+    }
+    if (g.showStats) {
+        displayStats(g);
+    }
+}
+function redrawSquare(g, x, y) {
+    var s = g.field.getSize(),
+        sqLength = Math.min(g.width, g.height) / g.field.getSize(),
+        fill, stroke,
+        x, y;
+    g.ctx.clearRect(x*sqLength, y*sqLength, sqLength, sqLength);
+    fill   =               g.field.get(x + y *s)   ? "#729fcf" : "#fcaf3e";
+    stroke = g.doStroke && g.toggles.get(x + y *s) ? "#fce94f" : "transparent";
+    g.ctx.clearRect(x*sqLength, y*sqLength, sqLength, sqLength);
+    g.ctx.drawRoundedRect(x*sqLength+5, y*sqLength+5, sqLength-10, sqLength-10, 5, fill, stroke);
+    if (g.showDigits && g.stats.numNeigh[x + y *s] !== 0) {
+        g.ctx.fillText(g.stats.numNeigh[x + y *s], (x + .5)*sqLength, (y + .5)*sqLength+5);
+    }
+}
+function displayStats(g) {
+    //TODO: Idee: Stats als mit der Maus verschiebbares Overlay ✔
+    //            Mauszeiger -> Verschiebekreuz beim Überfahren ✔
+    //            X-Button zum Schließen in der Ecke
+    //      Alpha funktioniert nicht wie gewollt, da zu oft gezeichnet wird
+    //        eventueller Fix: lösche (clear) statsBox vor redraw() bzw. redrawSquare() (-> Überlappender Bereich -> clip()?)
+    var statsPosX = g.stats.statsPosX,
+        statsPosY = g.stats.statsPosY,
+        statsWidth = g.stats.statsWidth,
+        statsHeight = g.stats.statsHeight;
+    g.ctx.save();
+    //g.ctx.globalAlpha = .6;
+    g.ctx.drawRoundedRect(statsPosX, statsPosY, statsWidth, statsHeight, 15, "#eeeeec", "#2e3436");
+    g.ctx.globalAlpha = 1;
+    g.ctx.font = "12px sans-serif";
+    g.ctx.textAlign = "start";
+    g.ctx.textBaseline = "alphabetic";
+    g.ctx.fillText("Current Clicks: " + g.stats.clicks   , statsPosX + statsWidth/10, statsPosY + statsHeight/4);
+    g.ctx.fillText("Total Clicks:   " + g.stats.clicksSum, statsPosX + statsWidth/10, statsPosY + statsHeight/2);
+    g.ctx.fillText("Needed Clicks:  " + g.stats.toggled  , statsPosX + statsWidth/10, statsPosY + statsHeight/4*3);
+    
+    g.ctx.restore();
+}
+function getMousePos(g) {
+    var offsetX, offsetY;
+    if (g.width > g.height) {
+        offsetX = (g.width - g.height) / 2, offsetY = 0;
+    } else {
+        offsetY = (g.height - g.width) / 2, offsetX = 0;
+    }
+    return [g.mouseX-offsetX, g.mouseY-offsetY];
+}
+function isMouseOverStatsBox(g) {
+    var p, x, y;
+    p = getMousePos(g);
+    x = p[0];
+    y = p[1];
+    if (g.showStats && 
+        x >= g.stats.statsPosX && x <= g.stats.statsPosX + g.stats.statsWidth &&
+        y >= g.stats.statsPosY && y <= g.stats.statsPosY + g.stats.statsHeight) {
+        return true;
+    } else {
+        return false;
+    }
+}
+window.addEventListener("hashchange", g.onHashChange.bind(g));
+</script>
+</body>
+</html>
